@@ -22,9 +22,12 @@ async function ensureSchema(env) {
     `CREATE TABLE IF NOT EXISTS support_tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS support_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, sender TEXT NOT NULL, sender_type TEXT NOT NULL, message TEXT NOT NULL, attachment_name TEXT, attachment_type TEXT, attachment_data TEXT, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS sup_applications (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open')`,
-    `CREATE TABLE IF NOT EXISTS maintenance (id INTEGER PRIMARY KEY CHECK(id=1), enabled_until TEXT, started_at TEXT, started_by TEXT)`
+    `CREATE TABLE IF NOT EXISTS maintenance (id INTEGER PRIMARY KEY CHECK(id=1), enabled_until TEXT, started_at TEXT, started_by TEXT, show_pc INTEGER NOT NULL DEFAULT 1, show_mobile INTEGER NOT NULL DEFAULT 1, reason TEXT DEFAULT '')`,
+    `ALTER TABLE maintenance ADD COLUMN show_pc INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE maintenance ADD COLUMN show_mobile INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE maintenance ADD COLUMN reason TEXT DEFAULT ''`
   ];
-  for (const q of sql) await env.DB.prepare(q).run();
+  for (const q of sql) { try { await env.DB.prepare(q).run(); } catch (e) { if (!/duplicate column name/i.test(e?.message || '')) throw e; } }
 }
 
 const reserved = /(^|[^a-z])(owner|admin|administrator|mod|moderator|sup|supervisor|staff|team|developer|dev|support|manager|leitung|inhaber|besitzer)([^a-z]|$)/i;
@@ -151,9 +154,13 @@ export default {
       if (path === '/api/admin/maintenance' && req.method === 'POST') {
         if(!auth(req)) return json({error:'Nicht autorisiert.'},401);
         const b=await req.json(); const minutes=Number(b.minutes); const mode=String(b.mode||'start');
-        if(mode==='off'){await env.DB.prepare('INSERT INTO maintenance(id,enabled_until,started_at,started_by) VALUES(1,NULL,NULL,?) ON CONFLICT(id) DO UPDATE SET enabled_until=NULL,started_at=NULL,started_by=?').bind('admin','admin').run(); return json({ok:true,maintenance:null});}
+        if(mode==='off'){await env.DB.prepare('INSERT INTO maintenance(id,enabled_until,started_at,started_by,show_pc,show_mobile,reason) VALUES(1,NULL,NULL,?,1,1,?) ON CONFLICT(id) DO UPDATE SET enabled_until=NULL,started_at=NULL,started_by=?,show_pc=1,show_mobile=1,reason=?').bind('admin','', 'admin','').run(); return json({ok:true,maintenance:null});}
         if(!Number.isFinite(minutes)||minutes<1||minutes>10080) return bad('Dauer muss zwischen 1 und 10080 Minuten liegen.');
-        const until=new Date(Date.now()+minutes*60000).toISOString(), now=new Date().toISOString(); await env.DB.prepare('INSERT INTO maintenance(id,enabled_until,started_at,started_by) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET enabled_until=?,started_at=?,started_by=?').bind(until,now,'admin',until,now,'admin').run(); return json({ok:true,maintenance:{enabled_until:until,started_at:now}});
+        const until=new Date(Date.now()+minutes*60000).toISOString(), now=new Date().toISOString();
+        const showPc=b.showPc===false?0:1, showMobile=b.showMobile===false?0:1, reason=clean(b.reason,300)||'Die Website wird gerade gewartet.';
+        if(!showPc && !showMobile) return bad('Wähle mindestens PC oder Handy aus.');
+        await env.DB.prepare('INSERT INTO maintenance(id,enabled_until,started_at,started_by,show_pc,show_mobile,reason) VALUES(1,?,?,?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET enabled_until=?,started_at=?,started_by=?,show_pc=?,show_mobile=?,reason=?').bind(until,now,'admin',showPc,showMobile,reason,until,now,'admin',showPc,showMobile,reason).run();
+        return json({ok:true,maintenance:{enabled_until:until,started_at:now,show_pc:showPc,show_mobile:showMobile,reason}});
       }
       if (path === '/api/admin/maintenance/status' && req.method === 'GET') { const m=await env.DB.prepare('SELECT * FROM maintenance WHERE id=1').first(); return json({maintenance:m||null}); }
       if (path === '/api/admin/support/tickets' && req.method === 'GET') {
