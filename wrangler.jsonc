@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "luksmp-app",
+  "name": "luksmp--app",
   "main": "worker.js",
   "compatibility_date": "2026-10-08",
   "d1_databases": [

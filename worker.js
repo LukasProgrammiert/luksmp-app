@@ -18,7 +18,11 @@ async function ensureSchema(env) {
     `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, player TEXT NOT NULL, reason TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS support (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subject TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS names (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, token TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS private_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, recipient TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL)`
+    `CREATE TABLE IF NOT EXISTS private_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, recipient TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS support_tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS support_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, sender TEXT NOT NULL, sender_type TEXT NOT NULL, message TEXT NOT NULL, attachment_name TEXT, attachment_type TEXT, attachment_data TEXT, created_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS sup_applications (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open')`,
+    `CREATE TABLE IF NOT EXISTS maintenance (id INTEGER PRIMARY KEY CHECK(id=1), enabled_until TEXT, started_at TEXT, started_by TEXT)`
   ];
   for (const q of sql) await env.DB.prepare(q).run();
 }
@@ -85,18 +89,55 @@ export default {
         await env.DB.prepare('INSERT INTO ideas(name,idea,created_at) VALUES(?,?,?)').bind(name,idea,new Date().toISOString()).run(); return json({ok:true});
       }
       if (path === '/api/public' && req.method === 'GET') {
-        const [n,e,no]=await Promise.all([
+        const [n,e,no,m]=await Promise.all([
           env.DB.prepare('SELECT * FROM news ORDER BY id DESC LIMIT 10').all(),
           env.DB.prepare('SELECT * FROM events WHERE event_at >= ? ORDER BY event_at ASC LIMIT 20').bind(new Date().toISOString()).all(),
-          env.DB.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 10').all()
+          env.DB.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 10').all(),
+          env.DB.prepare('SELECT * FROM maintenance WHERE id=1').first()
         ]);
-        return json({news:n.results,events:e.results,notifications:no.results});
+        return json({news:n.results,events:e.results,notifications:no.results,maintenance:m||null});
       }
       if (path === '/api/reports' && req.method === 'POST') {
         const b=await req.json(); const name=clean(b.name,24), player=clean(b.player,24), reason=clean(b.reason,100), details=clean(b.details,1000);
         const owner=await nameByToken(env,b.token); if(!owner || owner.name!==name) return json({error:'Bitte zuerst einen festen Namen festlegen.'},401);
         if(!validName(name)||!player||!reason) return bad('Bitte Name, Spieler und Grund ausfüllen.');
         await env.DB.prepare('INSERT INTO reports(name,player,reason,details,created_at) VALUES(?,?,?,?,?)').bind(name,player,reason,details,new Date().toISOString()).run(); return json({ok:true});
+      }
+      if (path === '/api/support/tickets' && req.method === 'POST') {
+        const b=await req.json(); const name=clean(b.name,24), subject=clean(b.subject,100), message=clean(b.message,2000);
+        const owner=await nameByToken(env,b.token); if(!owner || owner.name!==name) return json({error:'Bitte zuerst einen festen Namen festlegen.'},401);
+        if(!validName(name)||!subject||!message) return bad('Bitte Betreff und Nachricht ausfüllen.');
+        const now=new Date().toISOString();
+        const r=await env.DB.prepare('INSERT INTO support_tickets(name,subject,status,created_at,updated_at) VALUES(?,?,?,?,?)').bind(name,subject,'open',now,now).run();
+        const id=r.meta.last_row_id;
+        await env.DB.prepare('INSERT INTO support_messages(ticket_id,sender,sender_type,message,created_at) VALUES(?,?,?,?,?)').bind(id,name,'player',message,now).run();
+        return json({ok:true,ticketId:id});
+      }
+      if (path === '/api/support/tickets' && req.method === 'GET') {
+        const token=u.searchParams.get('token'); const owner=await nameByToken(env,token); if(!owner) return json({error:'Nicht autorisiert.'},401);
+        const tickets=await env.DB.prepare('SELECT * FROM support_tickets WHERE name=? ORDER BY id DESC LIMIT 50').bind(owner.name).all();
+        const out=[]; for(const t of tickets.results){const msgs=await env.DB.prepare('SELECT * FROM support_messages WHERE ticket_id=? ORDER BY id ASC').bind(t.id).all(); out.push({...t,messages:msgs.results});}
+        return json({tickets:out});
+      }
+      if (path === '/api/support/tickets/message' && req.method === 'POST') {
+        const b=await req.json(); const token=b.token, owner=await nameByToken(env,token); if(!owner) return json({error:'Nicht autorisiert.'},401);
+        const id=Number(b.ticketId), message=clean(b.message,2000); if(!id||!message) return bad('Nachricht fehlt.');
+        const t=await env.DB.prepare('SELECT * FROM support_tickets WHERE id=? AND name=?').bind(id,owner.name).first(); if(!t) return json({error:'Ticket nicht gefunden.'},404);
+        const now=new Date().toISOString(); await env.DB.prepare('INSERT INTO support_messages(ticket_id,sender,sender_type,message,created_at) VALUES(?,?,?,?,?)').bind(id,owner.name,'player',message,now).run(); await env.DB.prepare('UPDATE support_tickets SET updated_at=?,status=? WHERE id=?').bind(now,'open',id).run(); return json({ok:true});
+      }
+      if (path === '/api/support/tickets/attachment' && req.method === 'POST') {
+        const b=await req.json(); const owner=await nameByToken(env,b.token); if(!owner) return json({error:'Nicht autorisiert.'},401);
+        const id=Number(b.ticketId), name=clean(b.name,120), type=clean(b.type,100), data=typeof b.data==='string'?b.data:'';
+        if(!id||!name||!data) return bad('Datei fehlt.'); if(data.length>420000) return bad('Datei zu groß. Maximal ca. 300 KB.');
+        const t=await env.DB.prepare('SELECT * FROM support_tickets WHERE id=? AND name=?').bind(id,owner.name).first(); if(!t) return json({error:'Ticket nicht gefunden.'},404);
+        const now=new Date().toISOString(); await env.DB.prepare('INSERT INTO support_messages(ticket_id,sender,sender_type,message,attachment_name,attachment_type,attachment_data,created_at) VALUES(?,?,?,?,?,?,?,?)').bind(id,owner.name,'player','📎 Beweis/Datei: '+name,name,type,data,now).run(); await env.DB.prepare('UPDATE support_tickets SET updated_at=?,status=? WHERE id=?').bind(now,'open',id).run(); return json({ok:true});
+      }
+      if (path === '/api/sup-application' && req.method === 'POST') {
+        const b=await req.json(); const name=clean(b.name,24), text=clean(b.text,3000); const owner=await nameByToken(env,b.token); if(!owner||owner.name!==name) return json({error:'Bitte zuerst einen festen Namen festlegen.'},401); if(!text) return bad('Bewerbung fehlt.');
+        await env.DB.prepare('INSERT INTO sup_applications(name,text,created_at,status) VALUES(?,?,?,?)').bind(name,text,new Date().toISOString(),'open').run(); return json({ok:true});
+      }
+      if (path === '/api/my-tickets' && req.method === 'GET') {
+        const token=u.searchParams.get('token'); const owner=await nameByToken(env,token); if(!owner) return json({error:'Nicht autorisiert.'},401); return json({applications:(await env.DB.prepare('SELECT * FROM sup_applications WHERE name=? ORDER BY id DESC LIMIT 20').bind(owner.name).all()).results});
       }
       if (path === '/api/support' && req.method === 'POST') {
         const b=await req.json(); const name=clean(b.name,24), subject=clean(b.subject,100), message=clean(b.message,1200);
@@ -107,16 +148,32 @@ export default {
       if (path === '/api/admin/login' && req.method === 'POST') {
         const b=await req.json(); if(b.password!==ADMIN_PASSWORD) return json({error:'Falsches Admin-Passwort.'},401); return json({ok:true,token:ADMIN_PASSWORD});
       }
+      if (path === '/api/admin/maintenance' && req.method === 'POST') {
+        if(!auth(req)) return json({error:'Nicht autorisiert.'},401);
+        const b=await req.json(); const minutes=Number(b.minutes); const mode=String(b.mode||'start');
+        if(mode==='off'){await env.DB.prepare('INSERT INTO maintenance(id,enabled_until,started_at,started_by) VALUES(1,NULL,NULL,?) ON CONFLICT(id) DO UPDATE SET enabled_until=NULL,started_at=NULL,started_by=?').bind('admin','admin').run(); return json({ok:true,maintenance:null});}
+        if(!Number.isFinite(minutes)||minutes<1||minutes>10080) return bad('Dauer muss zwischen 1 und 10080 Minuten liegen.');
+        const until=new Date(Date.now()+minutes*60000).toISOString(), now=new Date().toISOString(); await env.DB.prepare('INSERT INTO maintenance(id,enabled_until,started_at,started_by) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET enabled_until=?,started_at=?,started_by=?').bind(until,now,'admin',until,now,'admin').run(); return json({ok:true,maintenance:{enabled_until:until,started_at:now}});
+      }
+      if (path === '/api/admin/maintenance/status' && req.method === 'GET') { const m=await env.DB.prepare('SELECT * FROM maintenance WHERE id=1').first(); return json({maintenance:m||null}); }
+      if (path === '/api/admin/support/tickets' && req.method === 'GET') {
+        if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const ts=await env.DB.prepare('SELECT * FROM support_tickets ORDER BY updated_at DESC LIMIT 300').all(); const out=[]; for(const t of ts.results){const msgs=await env.DB.prepare('SELECT * FROM support_messages WHERE ticket_id=? ORDER BY id ASC').bind(t.id).all(); out.push({...t,messages:msgs.results});} return json({tickets:out});
+      }
+      if (path === '/api/admin/support/reply' && req.method === 'POST') {
+        if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); const id=Number(b.ticketId), message=clean(b.message,2000); if(!id||!message)return bad('Nachricht fehlt.'); const t=await env.DB.prepare('SELECT * FROM support_tickets WHERE id=?').bind(id).first(); if(!t)return json({error:'Ticket nicht gefunden.'},404); const now=new Date().toISOString(); await env.DB.prepare('INSERT INTO support_messages(ticket_id,sender,sender_type,message,created_at) VALUES(?,?,?,?,?)').bind(id,'LukSMP Support','staff',message,now).run(); await env.DB.prepare('UPDATE support_tickets SET updated_at=?,status=? WHERE id=?').bind(now,'staff_replied',id).run(); return json({ok:true});
+      }
+      if (path === '/api/admin/support/close' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('UPDATE support_tickets SET status=? WHERE id=?').bind('closed',Number(b.ticketId)).run(); return json({ok:true}); }
       if (path === '/api/admin/data' && req.method === 'GET') {
         if(!auth(req)) return json({error:'Nicht autorisiert.'},401);
-        const [i,c,r,s,n,e,no,pm]=await Promise.all([
+        const [i,c,r,s,n,e,no,pm,apps,m]=await Promise.all([
           env.DB.prepare('SELECT * FROM ideas ORDER BY id DESC LIMIT 300').all(), env.DB.prepare('SELECT * FROM chat ORDER BY id DESC LIMIT 300').all(),
           env.DB.prepare('SELECT * FROM reports ORDER BY id DESC LIMIT 300').all(), env.DB.prepare('SELECT * FROM support ORDER BY id DESC LIMIT 300').all(),
-          env.DB.prepare('SELECT * FROM news ORDER BY id DESC LIMIT 100').all(), env.DB.prepare('SELECT * FROM events ORDER BY event_at ASC LIMIT 100').all(), env.DB.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 100').all(), env.DB.prepare('SELECT * FROM private_messages ORDER BY id DESC LIMIT 300').all()
+          env.DB.prepare('SELECT * FROM news ORDER BY id DESC LIMIT 100').all(), env.DB.prepare('SELECT * FROM events ORDER BY event_at ASC LIMIT 100').all(), env.DB.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 100').all(), env.DB.prepare('SELECT * FROM private_messages ORDER BY id DESC LIMIT 300').all(), env.DB.prepare('SELECT * FROM sup_applications ORDER BY id DESC LIMIT 200').all(), env.DB.prepare('SELECT * FROM maintenance WHERE id=1').first()
         ]);
-        return json({ideas:i.results,messages:c.results,reports:r.results,support:s.results,news:n.results,events:e.results,notifications:no.results,privateMessages:pm.results});
+        return json({ideas:i.results,messages:c.results,reports:r.results,support:s.results,news:n.results,events:e.results,notifications:no.results,privateMessages:pm.results,applications:apps.results,maintenance:m||null});
       }
       if (path === '/api/admin/clear-chat' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); await env.DB.prepare('DELETE FROM chat').run(); return json({ok:true}); }
+      if (path === '/api/admin/delete-chat-message' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); const id=Number(b.id); if(!id) return bad('Nachrichten-ID fehlt.'); await env.DB.prepare('DELETE FROM chat WHERE id=?').bind(id).run(); return json({ok:true}); }
       if (path === '/api/admin/delete-idea' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('DELETE FROM ideas WHERE id=?').bind(Number(b.id)).run(); return json({ok:true}); }
       if (path === '/api/admin/delete-report' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('DELETE FROM reports WHERE id=?').bind(Number(b.id)).run(); return json({ok:true}); }
       if (path === '/api/admin/delete-support' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('DELETE FROM support WHERE id=?').bind(Number(b.id)).run(); return json({ok:true}); }
