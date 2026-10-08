@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "luksmp-app",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-08",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "luksmp-db",
+      "database_id": "0c2d8d35-f27e-4117-b17a-e1e1b8406390"
+    }
+  ],
+  "assets": {"directory": "./"}
+}
