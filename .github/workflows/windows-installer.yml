@@ -1,0 +1,35 @@
+
+name: Build LukSMP Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/windows-installer.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Repository herunterladen
+        uses: actions/checkout@v4
+
+      - name: Node.js installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Abhängigkeiten installieren
+        working-directory: desktop
+        run: npm install
+
+      - name: Windows-Installer bauen
+        working-directory: desktop
+        run: npm run dist
+
+      - name: Installer hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: LukSMP-Windows-Installer
+          path: desktop/dist/*.exe
