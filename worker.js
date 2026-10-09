@@ -8,6 +8,8 @@ const json = (data, status=200) => new Response(JSON.stringify(data), {status, h
 const auth = req => req.headers.get('Authorization') === `Bearer ${ADMIN_PASSWORD}`;
 const bad = msg => json({error:msg}, 400);
 
+let schemaInitialization = null;
+
 async function ensureSchema(env) {
   const sql = [
     `CREATE TABLE IF NOT EXISTS chat (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL)`,
@@ -61,7 +63,10 @@ export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null,{headers:cors});
     try {
-      await ensureSchema(env);
+      if (!schemaInitialization) {
+        schemaInitialization = ensureSchema(env).catch(error => { schemaInitialization = null; throw error; });
+      }
+      await schemaInitialization;
       const u = new URL(req.url);
       const path = u.pathname;
       if (path === '/api/register-account' && req.method === 'POST') {

@@ -24,3 +24,12 @@
 
 /* v21 account security, gradient roles and cleaner errors */
 .account-mark{font-size:42px;text-align:center;filter:drop-shadow(0 0 18px #8b5cf688)}.accountbox h2{text-align:center}.account-switch{width:100%;margin-top:10px;background:#1b2030}.account-recovery{margin-top:18px;padding-top:14px;border-top:1px solid #30364a}.account-recovery summary{cursor:pointer;font-weight:800}.role-prefix{display:inline-block;font-weight:950;letter-spacing:.02em;background:linear-gradient(100deg,var(--role-start,#8b5cf6),var(--role-end,#ec4899));background-clip:text;-webkit-background-clip:text;color:transparent;text-shadow:0 0 16px color-mix(in srgb,var(--role-start,#8b5cf6) 20%,transparent)}.role-caption{display:inline-block;color:#a5a9bb;font-size:11px;margin-left:5px}.role-colors{display:flex;gap:14px;flex-wrap:wrap}.role-colors label{display:flex;gap:8px;align-items:center}.role-colors input[type=color]{width:54px;height:38px;padding:3px}.role-preview{margin:14px 0;padding:13px;background:#0c101b;border:1px solid #30364a;border-radius:12px;font-weight:800}.role-manager{margin-top:14px}.role-manager .role-prefix{font-size:1.02em}#toast{max-width:min(420px,calc(100vw - 40px));white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* v24: Keep maintenance countdown readable on desktop and narrow windows. */
+.maintenancebox{width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow-y:auto}
+.countdown{width:100%;max-width:600px;margin:16px auto 6px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:clamp(3px,1vw,10px);font-size:clamp(1.35rem,4.8vw,3.7rem);letter-spacing:0;line-height:1.15}
+.countdown span{display:flex;align-items:center;justify-content:center;min-width:0;padding:clamp(8px,1.5vw,14px) clamp(2px,.7vw,10px);white-space:nowrap}
+.countdown i{font-size:.7em}
+.countdown-units{width:100%;max-width:600px;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:clamp(3px,1vw,10px);font-size:clamp(.52rem,1.1vw,.7rem);letter-spacing:.03em}
+.countdown-units span:nth-child(1){grid-column:1}.countdown-units span:nth-child(2){grid-column:3}.countdown-units span:nth-child(3){grid-column:5}.countdown-units span:nth-child(4){grid-column:7}
+@media(max-width:700px){.maintenancebox{max-height:calc(100vh - 20px);padding:24px 14px}.countdown{font-size:clamp(1.15rem,6vw,2.2rem);gap:3px}.countdown-units{font-size:clamp(.45rem,2vw,.6rem)}}
