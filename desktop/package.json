@@ -1,58 +1,57 @@
 {
-  "name": "luksmp-desktop",
-  "version": "1.0.1",
-  "description": "LukSMP Community App für Windows",
-  "main": "main.cjs",
-  "author": "LukSMP",
-  "license": "UNLICENSED",
-  "private": true,
-  "scripts": {
-    "start": "electron .",
-    "dist": "electron-builder --win nsis"
-  },
-  "dependencies": {
-    "electron-updater": "^6.6.2"
-  },
-  "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^26.0.12"
-  },
-  "build": {
-    "appId": "net.luksmp.desktop",
-    "productName": "LukSMP",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "main.cjs",
-      "package.json",
-      "node_modules/**/*"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        }
-      ],
-      "artifactName": "LukSMP-Setup.exe"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "LukasProgrammiert",
-        "repo": "luksmp-app"
-      }
-    ],
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "LukSMP",
-      "deleteAppDataOnUninstall": false
-    }
-  }
+"name": "luksmp-desktop",
+"version": "1.0.1",
+"description": "LukSMP Community App für Windows",
+"main": "main.cjs",
+"author": "LukSMP",
+"license": "UNLICENSED",
+"private": true,
+"scripts": {
+"start": "electron .",
+"dist": "electron-builder --win nsis"
+},
+"dependencies": {
+"electron-updater": "^6.6.2"
+},
+"devDependencies": {
+"electron": "^35.0.0",
+"electron-builder": "^26.0.12"
+},
+"build": {
+"appId": "net.luksmp.desktop",
+"productName": "LukSMP",
+"directories": {
+"output": "dist"
+},
+"files": [
+"main.cjs",
+"package.json",
+"node_modules/**/*"
+],
+"win": {
+"target": [
+{
+"target": "nsis",
+"arch": ["x64"]
 }
-```
+],
+"artifactName": "LukSMP-Setup.exe"
+},
+"publish": [
+{
+"provider": "github",
+"owner": "LukasProgrammiert",
+"repo": "luksmp-app"
+}
+],
+"nsis": {
+"oneClick": false,
+"allowToChangeInstallationDirectory": true,
+"createDesktopShortcut": true,
+"createStartMenuShortcut": true,
+"shortcutName": "LukSMP",
+"deleteAppDataOnUninstall": false
+}
+}
+}
 
