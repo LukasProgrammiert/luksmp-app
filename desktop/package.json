@@ -1,0 +1,35 @@
+{
+  "name": "luksmp-desktop",
+  "version": "1.0.0",
+  "description": "LukSMP Community App für Windows",
+  "main": "main.cjs",
+  "author": "LukSMP",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "net.luksmp.desktop",
+    "productName": "LukSMP",
+    "directories": { "output": "dist" },
+    "files": ["main.cjs", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "LukSMP-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LukSMP",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
