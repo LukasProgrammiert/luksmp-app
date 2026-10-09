@@ -53,7 +53,7 @@ function clean(s,max){return typeof s==='string' ? s.trim().slice(0,max) : '';}
 function tokenFor(name){return crypto.randomUUID()+'-'+crypto.randomUUID();}
 async function nameByToken(env,token){if(!token)return null; const r=await env.DB.prepare('SELECT name,token FROM names WHERE token=? LIMIT 1').bind(token).first(); return r||null;}
 async function writeLog(env,actor,action,details=''){try{await env.DB.prepare('INSERT INTO audit_logs(actor,action,details,created_at) VALUES(?,?,?,?)').bind(clean(actor,24)||'System',clean(action,100),clean(details,500),new Date().toISOString()).run()}catch{}}
-async function passwordHash(password,salt=crypto.randomUUID()){const enc=new TextEncoder();const key=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:enc.encode(salt),iterations:150000,hash:'SHA-256'},key,256);const hex=[...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');return salt+'$'+hex;}
+async function passwordHash(password,salt=crypto.randomUUID()){const enc=new TextEncoder();const key=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:enc.encode(salt),iterations:100000,hash:'SHA-256'},key,256);const hex=[...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');return salt+'$'+hex;}
 async function passwordMatches(password,stored){if(!stored||!stored.includes('$'))return false;const salt=stored.split('$')[0];return (await passwordHash(password,salt))===stored;}
 function validHexColor(v){return /^#[0-9a-f]{6}$/i.test(String(v||''));}
 
