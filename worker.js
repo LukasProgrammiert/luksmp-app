@@ -23,11 +23,20 @@ async function ensureSchema(env) {
     `CREATE TABLE IF NOT EXISTS support_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, sender TEXT NOT NULL, sender_type TEXT NOT NULL, message TEXT NOT NULL, attachment_name TEXT, attachment_type TEXT, attachment_data TEXT, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS sup_applications (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open')`,
     `CREATE TABLE IF NOT EXISTS maintenance (id INTEGER PRIMARY KEY CHECK(id=1), enabled_until TEXT, started_at TEXT, started_by TEXT, show_pc INTEGER NOT NULL DEFAULT 1, show_mobile INTEGER NOT NULL DEFAULT 1, reason TEXT DEFAULT '')`,
+    `CREATE TABLE IF NOT EXISTS forum_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'Allgemein', created_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS gallery (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, caption TEXT NOT NULL, image_data TEXT NOT NULL, created_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS friends (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, friend_name TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(name,friend_name))`,
+    `CREATE TABLE IF NOT EXISTS poll_votes (id INTEGER PRIMARY KEY AUTOINCREMENT, poll_key TEXT NOT NULL, name TEXT NOT NULL, choice TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(poll_key,name))`,
+    `CREATE TABLE IF NOT EXISTS event_signups (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(event_id,name))`,
+    `CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, name TEXT NOT NULL, emoji TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(chat_id,name,emoji))`,
+    `CREATE TABLE IF NOT EXISTS staff_schedule (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, available_at TEXT NOT NULL, note TEXT DEFAULT '', created_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS changelog (id INTEGER PRIMARY KEY AUTOINCREMENT, version TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)` ,
     `ALTER TABLE maintenance ADD COLUMN show_pc INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE maintenance ADD COLUMN show_mobile INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE maintenance ADD COLUMN reason TEXT DEFAULT ''`
   ];
   for (const q of sql) { try { await env.DB.prepare(q).run(); } catch (e) { if (!/duplicate column name/i.test(e?.message || '')) throw e; } }
+  try { const c=await env.DB.prepare('SELECT COUNT(*) AS n FROM changelog').first(); if(!c?.n) await env.DB.prepare('INSERT INTO changelog(version,title,content,created_at) VALUES(?,?,?,?)').bind('v17','LukSMP Ultimate','Community-Extras, Wartungsgeräte-Vorschau, Forum, Galerie, Freunde, Event-Anmeldungen und Verbesserungen.','2026-10-09T00:00:00.000Z').run(); } catch {}
 }
 
 const reserved = /(^|[^a-z])(owner|admin|administrator|mod|moderator|sup|supervisor|staff|team|developer|dev|support|manager|leitung|inhaber|besitzer)([^a-z]|$)/i;
@@ -122,6 +131,11 @@ export default {
         const out=[]; for(const t of tickets.results){const msgs=await env.DB.prepare('SELECT * FROM support_messages WHERE ticket_id=? ORDER BY id ASC').bind(t.id).all(); out.push({...t,messages:msgs.results});}
         return json({tickets:out});
       }
+      if (path === '/api/support/tickets/close' && req.method === 'POST') {
+        const b=await req.json(); const id=Number(b.ticketId); if(!id) return bad('Ticket fehlt.');
+        const t=await env.DB.prepare('SELECT * FROM support_tickets WHERE id=? AND name=?').bind(id,owner.name).first(); if(!t) return json({error:'Ticket nicht gefunden.'},404);
+        await env.DB.prepare('UPDATE support_tickets SET status=?,updated_at=? WHERE id=?').bind('closed',new Date().toISOString(),id).run(); return json({ok:true});
+      }
       if (path === '/api/support/tickets/message' && req.method === 'POST') {
         const b=await req.json(); const token=b.token, owner=await nameByToken(env,token); if(!owner) return json({error:'Nicht autorisiert.'},401);
         const id=Number(b.ticketId), message=clean(b.message,2000); if(!id||!message) return bad('Nachricht fehlt.');
@@ -169,6 +183,7 @@ export default {
       if (path === '/api/admin/support/reply' && req.method === 'POST') {
         if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); const id=Number(b.ticketId), message=clean(b.message,2000); if(!id||!message)return bad('Nachricht fehlt.'); const t=await env.DB.prepare('SELECT * FROM support_tickets WHERE id=?').bind(id).first(); if(!t)return json({error:'Ticket nicht gefunden.'},404); const now=new Date().toISOString(); await env.DB.prepare('INSERT INTO support_messages(ticket_id,sender,sender_type,message,created_at) VALUES(?,?,?,?,?)').bind(id,'LukSMP Support','staff',message,now).run(); await env.DB.prepare('UPDATE support_tickets SET updated_at=?,status=? WHERE id=?').bind(now,'staff_replied',id).run(); return json({ok:true});
       }
+      if (path === '/api/admin/support/reopen' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('UPDATE support_tickets SET status=?,updated_at=? WHERE id=?').bind('open',new Date().toISOString(),Number(b.ticketId)).run(); return json({ok:true}); }
       if (path === '/api/admin/support/close' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('UPDATE support_tickets SET status=? WHERE id=?').bind('closed',Number(b.ticketId)).run(); return json({ok:true}); }
       if (path === '/api/admin/data' && req.method === 'GET') {
         if(!auth(req)) return json({error:'Nicht autorisiert.'},401);
@@ -190,6 +205,48 @@ export default {
       if (path === '/api/admin/delete-news' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('DELETE FROM news WHERE id=?').bind(Number(b.id)).run(); return json({ok:true}); }
       if (path === '/api/admin/delete-event' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('DELETE FROM events WHERE id=?').bind(Number(b.id)).run(); return json({ok:true}); }
       if (path === '/api/admin/delete-notification' && req.method === 'POST') { if(!auth(req)) return json({error:'Nicht autorisiert.'},401); const b=await req.json(); await env.DB.prepare('DELETE FROM notifications WHERE id=?').bind(Number(b.id)).run(); return json({ok:true}); }
+      if (path === '/api/extras' && req.method === 'GET') {
+        const [f,g,polls,ch,ev,cl]=await Promise.all([
+          env.DB.prepare('SELECT * FROM forum_posts ORDER BY id DESC LIMIT 100').all(),
+          env.DB.prepare('SELECT id,name,caption,created_at FROM gallery ORDER BY id DESC LIMIT 40').all(),
+          env.DB.prepare('SELECT poll_key,choice,COUNT(*) AS votes FROM poll_votes GROUP BY poll_key,choice').all(),
+          env.DB.prepare('SELECT id,version,title,content,created_at FROM changelog ORDER BY id DESC LIMIT 20').all(),
+          env.DB.prepare('SELECT id,title,event_at FROM events WHERE event_at >= ? ORDER BY event_at ASC LIMIT 30').bind(new Date().toISOString()).all(),
+          env.DB.prepare('SELECT COUNT(*) AS n FROM names').first()
+        ]);
+        const votes={}; for(const v of polls.results){(votes[v.poll_key]??={})[v.choice]=v.votes;}
+        return json({forum:f.results,gallery:g.results,changelog:ch.results,events:ev.results,votes,registered:cl?.n||0});
+      }
+      if (path === '/api/forum' && req.method === 'POST') {
+        const b=await req.json(), owner=await nameByToken(env,b.token), title=clean(b.title,100), body=clean(b.body,1200), category=clean(b.category,30)||'Allgemein';
+        if(!owner) return json({error:'Bitte zuerst deinen festen Namen festlegen.'},401); if(!title||!body)return bad('Titel und Beitrag fehlen.');
+        await env.DB.prepare('INSERT INTO forum_posts(name,title,body,category,created_at) VALUES(?,?,?,?,?)').bind(owner.name,title,body,category,new Date().toISOString()).run(); return json({ok:true});
+      }
+      if (path === '/api/gallery' && req.method === 'POST') {
+        const b=await req.json(), owner=await nameByToken(env,b.token), caption=clean(b.caption,150), data=typeof b.image==='string'?b.image:'';
+        if(!owner)return json({error:'Bitte zuerst deinen festen Namen festlegen.'},401); if(!data.startsWith('data:image/'))return bad('Bitte ein Bild auswählen.'); if(data.length>400000)return bad('Bild zu groß. Maximal etwa 300 KB.');
+        await env.DB.prepare('INSERT INTO gallery(name,caption,image_data,created_at) VALUES(?,?,?,?)').bind(owner.name,caption,data,new Date().toISOString()).run(); return json({ok:true});
+      }
+      if (path === '/api/gallery/images' && req.method === 'GET') { const r=await env.DB.prepare('SELECT * FROM gallery ORDER BY id DESC LIMIT 40').all(); return json({gallery:r.results}); }
+      if (path === '/api/friends' && req.method === 'POST') {
+        const b=await req.json(), owner=await nameByToken(env,b.token), target=clean(b.friend,24); if(!owner)return json({error:'Bitte zuerst deinen festen Namen festlegen.'},401); if(!target||target.toLowerCase()===owner.name.toLowerCase())return bad('Ungültiger Freundesname.');
+        const exists=await env.DB.prepare('SELECT name FROM names WHERE lower(name)=lower(?)').bind(target).first(); if(!exists)return bad('Dieser Spieler hat noch keinen Namen registriert.');
+        try{await env.DB.prepare('INSERT INTO friends(name,friend_name,created_at) VALUES(?,?,?)').bind(owner.name,exists.name,new Date().toISOString()).run();}catch{} return json({ok:true});
+      }
+      if (path === '/api/friends' && req.method === 'GET') { const owner=await nameByToken(env,u.searchParams.get('token')); if(!owner)return json({error:'Nicht autorisiert.'},401); const r=await env.DB.prepare('SELECT friend_name,created_at FROM friends WHERE name=? ORDER BY id DESC').bind(owner.name).all(); return json({friends:r.results}); }
+      if (path === '/api/polls/vote' && req.method === 'POST') {
+        const b=await req.json(), owner=await nameByToken(env,b.token), key=clean(b.pollKey,40), choice=clean(b.choice,50); if(!owner)return json({error:'Bitte zuerst deinen festen Namen festlegen.'},401); if(!key||!choice)return bad('Abstimmung und Antwort fehlen.');
+        try{await env.DB.prepare('INSERT INTO poll_votes(poll_key,name,choice,created_at) VALUES(?,?,?,?)').bind(key,owner.name,choice,new Date().toISOString()).run();}catch{return bad('Du hast bei dieser Abstimmung bereits abgestimmt.');} return json({ok:true});
+      }
+      if (path === '/api/events/signup' && req.method === 'POST') {
+        const b=await req.json(), owner=await nameByToken(env,b.token), id=Number(b.eventId); if(!owner)return json({error:'Bitte zuerst deinen festen Namen festlegen.'},401); if(!id)return bad('Event fehlt.');
+        try{await env.DB.prepare('INSERT INTO event_signups(event_id,name,created_at) VALUES(?,?,?)').bind(id,owner.name,new Date().toISOString()).run();}catch{return bad('Du bist für dieses Event bereits angemeldet.');} return json({ok:true});
+      }
+      if (path === '/api/staff-schedule' && req.method === 'POST') {
+        const b=await req.json(), owner=await nameByToken(env,b.token), at=clean(b.availableAt,60), note=clean(b.note,200); if(!owner)return json({error:'Bitte zuerst deinen festen Namen festlegen.'},401); if(!at)return bad('Zeitpunkt fehlt.');
+        await env.DB.prepare('INSERT INTO staff_schedule(name,available_at,note,created_at) VALUES(?,?,?,?)').bind(owner.name,at,note,new Date().toISOString()).run(); return json({ok:true});
+      }
+      if (path === '/api/admin/extras' && req.method === 'GET') { if(!auth(req))return json({error:'Nicht autorisiert.'},401); const [signups,schedule,users,posts]=await Promise.all([env.DB.prepare('SELECT * FROM event_signups ORDER BY id DESC LIMIT 300').all(),env.DB.prepare('SELECT * FROM staff_schedule ORDER BY available_at ASC LIMIT 200').all(),env.DB.prepare('SELECT name,created_at FROM names ORDER BY id DESC LIMIT 500').all(),env.DB.prepare('SELECT * FROM forum_posts ORDER BY id DESC LIMIT 200').all()]); return json({signups:signups.results,schedule:schedule.results,users:users.results,posts:posts.results}); }
       if (path.startsWith('/api/')) return json({error:'Nicht gefunden.'},404);
       if (env.ASSETS) return env.ASSETS.fetch(req);
       return new Response('LukSMP App', {headers:{'Content-Type':'text/plain'}});
