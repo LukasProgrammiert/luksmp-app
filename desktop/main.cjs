@@ -1,4 +1,3 @@
-```javascript
 const { app, BrowserWindow, shell } = require('electron');
 
 const APP_URL = 'https://luksmp--app.lukas-wuelfing.workers.dev/';
@@ -45,6 +44,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
-```
+
 
 
